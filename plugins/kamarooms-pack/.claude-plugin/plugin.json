@@ -1,0 +1,21 @@
+{
+  "name": "kamarooms-pack",
+  "version": "0.1.1",
+  "description": "Единый пакет навыков Claude для сотрудников отеля KamaRooms: правила работы с Claude в отеле, деловые документы в официальном тоне, очистка текстов от ИИ-штампов (humanizer)",
+  "author": {
+    "name": "Алексей Филиппов / KamaRooms IT",
+    "email": "it@kamarooms.org"
+  },
+  "license": "MIT",
+  "keywords": [
+    "kamarooms",
+    "hotel",
+    "skills",
+    "documents",
+    "humanizer",
+    "russian"
+  ],
+  "skills": [
+    "./skills/"
+  ]
+}

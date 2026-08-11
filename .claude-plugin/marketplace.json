@@ -1,0 +1,20 @@
+{
+  "name": "kamarooms",
+  "description": "Стандартный набор навыков Claude для сотрудников отеля KamaRooms",
+  "owner": {
+    "name": "Алексей Филиппов / KamaRooms IT",
+    "email": "it@kamarooms.org"
+  },
+  "plugins": [
+    {
+      "name": "kamarooms-pack",
+      "description": "Единый пакет навыков для сотрудников KamaRooms: правила работы с Claude, деловые документы, очистка текстов от ИИ-штампов (humanizer)",
+      "author": {
+        "name": "Алексей Филиппов / KamaRooms IT",
+        "email": "it@kamarooms.org"
+      },
+      "category": "productivity",
+      "source": "./plugins/kamarooms-pack"
+    }
+  ]
+}
