@@ -15,6 +15,34 @@
       },
       "category": "productivity",
       "source": "./plugins/kamarooms-pack"
+    },
+    {
+      "name": "compound-engineering",
+      "description": "Внешний пакет Every (MIT): планирование, ревью кода, отладка, работа с PR. Для IT-специалистов, не для общего пользования. ~1,6k токенов в каждой сессии",
+      "author": {
+        "name": "Every",
+        "url": "https://github.com/EveryInc/compound-engineering-plugin"
+      },
+      "category": "development",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/EveryInc/compound-engineering-plugin.git",
+        "sha": "071b08ea7d30e74c5210eb9ef9d62a4c8f4b8b81"
+      }
+    },
+    {
+      "name": "cybersecurity-skills",
+      "description": "Внешний пакет (Apache 2.0, автор mukul975 — НЕ Anthropic, несмотря на название репозитория): 817 навыков по ИБ. ВНИМАНИЕ: ~70k токенов в каждой сессии. Только для точечных задач ИБ, ставить выборочно",
+      "author": {
+        "name": "mukul975",
+        "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills"
+      },
+      "category": "security",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills.git",
+        "sha": "4c0b700ac5d280ba46695062077f0fe922ce3602"
+      }
     }
   ]
 }
