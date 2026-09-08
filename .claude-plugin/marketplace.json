@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "kamarooms-pack",
-      "description": "Единый пакет навыков для сотрудников KamaRooms: правила работы с Claude, деловые документы, очистка текстов от ИИ-штампов (humanizer)",
+      "description": "Единый пакет навыков для сотрудников KamaRooms: правила работы с Claude, деловые документы, задачи в Битрикс24 из документов, очистка текстов от ИИ-штампов (humanizer)",
       "author": {
         "name": "Алексей Филиппов / KamaRooms IT",
         "email": "it@kamarooms.org"
