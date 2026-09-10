@@ -1,4 +1,4 @@
-<#
+﻿<#
 b24.ps1 — обёртка над REST API Битрикс24 для навыка bitrix24-tasks (пакет kamarooms-pack).
 Для Windows без Git Bash (инструмент PowerShell в Claude Code). Windows PowerShell 5.1 и новее.
 
@@ -22,7 +22,10 @@ b24.ps1 — обёртка над REST API Битрикс24 для навыка 
 Разрешены только методы из списка $Allowed: создание задач и чтение. Остальное — отказ.
 Снять ограничение может ИТ переменной B24_ALLOW_ANY=1 (в навыке не используется).
 
-Наблюдатели по умолчанию: defaults.env рядом со скриптом (B24_DEFAULT_AUDITORS, ID через пробел).
+Наблюдатели по умолчанию (B24_DEFAULT_AUDITORS, ID через пробел) берутся из первого источника,
+где список непуст: переменная окружения -> локальный файл машины
+%LOCALAPPDATA%\KamaRooms\b24-defaults.env -> defaults.env рядом со скриптом.
+В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный — файл заводит ИТ.
 Запрос tasks.task.add без них в AUDITORS отклоняется — правило отеля; исключение: ответственный из списка.
 
 Коды возврата: 0 — успех; 1 — ошибка использования или окружения; 2 — Битрикс вернул {"error":...};
@@ -47,15 +50,31 @@ $Allowed = @(
 $DatPath = Join-Path $env:LOCALAPPDATA 'KamaRooms\b24-webhook.dat'
 $script:Key = ''; $script:Portal = ''; $script:UserId = ''
 
-# Наблюдатели по умолчанию: переменная окружения (для тестов ИТ) имеет приоритет над defaults.env.
+# Наблюдатели по умолчанию. Порядок источников — от частного к общему, побеждает первый непустой:
+#   1) переменная окружения B24_DEFAULT_AUDITORS (тесты ИТ);
+#   2) локальный файл машины — состав наблюдателей отеля, вне публичного репозитория;
+#   3) defaults.env в пакете (по умолчанию пуст).
+$LocalDefaultsPath = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'KamaRooms\b24-defaults.env' } else { '' }
 $DefaultAuditors = @()
-if ($null -ne $env:B24_DEFAULT_AUDITORS) {
-  $DefaultAuditors = @($env:B24_DEFAULT_AUDITORS -split '\s+' | Where-Object { $_ })
-} else {
-  $DefaultsPath = Join-Path $PSScriptRoot 'defaults.env'
-  if (Test-Path $DefaultsPath) {
-    $dm = [regex]::Match((Get-Content $DefaultsPath -Raw), '(?m)^\s*B24_DEFAULT_AUDITORS\s*=\s*"?([0-9 ]*)"?')
-    if ($dm.Success) { $DefaultAuditors = @($dm.Groups[1].Value -split '\s+' | Where-Object { $_ }) }
+$AuditorsSource = 'не заданы'
+if ($env:B24_DEFAULT_AUDITORS) {
+  # Только цифры: пробелы, запятые и прочий мусор в список не попадают.
+  $DefaultAuditors = @($env:B24_DEFAULT_AUDITORS -split '\s+' | Where-Object { $_ -match '^[0-9]+$' })
+  if ($DefaultAuditors.Count -gt 0) { $AuditorsSource = 'переменная окружения B24_DEFAULT_AUDITORS' }
+}
+if ($DefaultAuditors.Count -eq 0) {
+  foreach ($f in @($LocalDefaultsPath, (Join-Path $PSScriptRoot 'defaults.env'))) {
+    if ($DefaultAuditors.Count -gt 0) { break }
+    if (-not $f) { continue }
+    if (-not (Test-Path $f)) { continue }
+    # Берём ПОСЛЕДНЕЕ присваивание — так же, как b24.sh (sed | tail -n 1) и как принято в .env.
+    # [string] на случай пустого файла: Get-Content -Raw возвращает $null, а Match($null) падает.
+    $ms = [regex]::Matches([string](Get-Content $f -Raw -ErrorAction SilentlyContinue),
+                           '(?m)^\s*(?:export\s+)?B24_DEFAULT_AUDITORS\s*=\s*"?([0-9\t ]*)"?\s*(?:#.*)?$')
+    if ($ms.Count -gt 0) {
+      $DefaultAuditors = @($ms[$ms.Count - 1].Groups[1].Value -split '\s+' | Where-Object { $_ -match '^[0-9]+$' })
+      if ($DefaultAuditors.Count -gt 0) { $AuditorsSource = $f }
+    }
   }
 }
 
@@ -104,7 +123,12 @@ function Redact([string]$s) {
 # Задача без наблюдателей по умолчанию не уходит: правило отеля — руководство и офис видят
 # каждую задачу, поставленную через навык. Ответственный из списка наблюдателем не дублируется.
 function Test-DefaultAuditors([string]$file) {
-  if ($DefaultAuditors.Count -eq 0) { return }
+  if ($DefaultAuditors.Count -eq 0) {
+    Fail 1 ("не задан список обязательных наблюдателей, а без него правило отеля не выполняется. " +
+            "Создайте файл $LocalDefaultsPath с одной строкой " +
+            'B24_DEFAULT_AUDITORS="ID ID"' +
+            " — состав выдаёт ИТ-отдел (it@kamarooms.org)")
+  }
   $payload = (Get-Content $file -Raw -Encoding UTF8) -replace '[\r\n]', ''
   $arr = [regex]::Match($payload, '"AUDITORS"\s*:\s*\[[^\]]*\]').Value
   $resp = [regex]::Match($payload, '"RESPONSIBLE_ID"\s*:\s*"?(\d+)').Groups[1].Value
@@ -172,6 +196,7 @@ switch ($Command) {
     Write-Output "ключ найден; портал: $($script:Portal); пользователь ID: $($script:UserId)"
     $da = if ($DefaultAuditors.Count -gt 0) { $DefaultAuditors -join ' ' } else { 'не заданы' }
     Write-Output "наблюдатели по умолчанию (AUDITORS): $da"
+    Write-Output "источник списка наблюдателей: $AuditorsSource"
   }
   'whoami' {
     Read-Key

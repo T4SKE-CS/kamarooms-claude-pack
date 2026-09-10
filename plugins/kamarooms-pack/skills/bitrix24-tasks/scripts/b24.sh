@@ -20,7 +20,10 @@
 # Разрешены только методы из списка ALLOWED: создание задач и чтение. Остальное — отказ.
 # Снять ограничение может ИТ переменной B24_ALLOW_ANY=1 (в навыке не используется).
 #
-# Наблюдатели по умолчанию: defaults.env рядом со скриптом (B24_DEFAULT_AUDITORS, ID через пробел).
+# Наблюдатели по умолчанию (B24_DEFAULT_AUDITORS, ID через пробел) берутся из первого источника,
+# где список непуст: переменная окружения → локальный файл машины (~/.kamarooms/b24-defaults.env,
+# на Windows %LOCALAPPDATA%\KamaRooms\b24-defaults.env) → defaults.env рядом со скриптом.
+# В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный — файл заводит ИТ.
 # Запрос tasks.task.add без них в AUDITORS отклоняется — правило отеля; исключение: ответственный из списка.
 #
 # Коды возврата: 0 — успех; 1 — ошибка использования или окружения; 2 — Битрикс вернул {"error":...};
@@ -30,13 +33,56 @@ set -euo pipefail
 SERVICE="kama-b24-webhook"
 ALLOWED="profile scope methods user.search user.get user.current user.fields tasks.task.add tasks.task.list tasks.task.get tasks.task.getFields task.checklistitem.add task.checklistitem.getlist sonet_group.get"
 
-# Наблюдатели по умолчанию: переменная окружения (для тестов ИТ) имеет приоритет над defaults.env.
+# Наблюдатели по умолчанию. Порядок источников — от частного к общему, побеждает первый непустой:
+#   1) переменная окружения B24_DEFAULT_AUDITORS (тесты ИТ);
+#   2) локальный файл машины — состав наблюдателей отеля, вне публичного репозитория;
+#   3) defaults.env в пакете (по умолчанию пуст — оставлен как место для значения по умолчанию).
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-if [ -z "${B24_DEFAULT_AUDITORS+x}" ] && [ -r "$SCRIPT_DIR/defaults.env" ]; then
-  # shellcheck disable=SC1091
-  . "$SCRIPT_DIR/defaults.env"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    LOCAL_DEFAULTS="${LOCALAPPDATA:-${HOME:-}/AppData/Local}/KamaRooms/b24-defaults.env" ;;
+  *)
+    LOCAL_DEFAULTS="${HOME:-}/.kamarooms/b24-defaults.env" ;;
+esac
+# Без HOME и LOCALAPPDATA (env -i, launchd, CI) путь собрать не из чего — тогда локального источника нет.
+[ -n "${HOME:-}" ] || [ -n "${LOCALAPPDATA:-}" ] || LOCAL_DEFAULTS=""
+AUDITORS_SOURCE="не заданы"
+AUDITORS_BADFILE=""   # файл нашёлся, но строку в нём разобрать не удалось
+if [ -n "${B24_DEFAULT_AUDITORS:-}" ]; then
+  AUDITORS_SOURCE="переменная окружения B24_DEFAULT_AUDITORS"
+else
+  B24_DEFAULT_AUDITORS=""
+  for f in "$LOCAL_DEFAULTS" "$SCRIPT_DIR/defaults.env"; do
+    [ -n "$B24_DEFAULT_AUDITORS" ] && break
+    [ -n "$f" ] || continue
+    # Именно файл: [ -r ] истинно и для каталога, а GNU sed на каталоге падает и под pipefail валит скрипт.
+    [ -f "$f" ] && [ -r "$f" ] || continue
+    # Читаем только строку B24_DEFAULT_AUDITORS=..., чужой код из файла не исполняем.
+    # Допускаем export в начале и комментарий в конце — обычные опечатки при ручном заведении файла.
+    B24_DEFAULT_AUDITORS=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?B24_DEFAULT_AUDITORS[[:space:]]*=[[:space:]]*"?([0-9[:space:]]*)"?[[:space:]]*(#.*)?$/\2/p' "$f" 2>/dev/null | tail -n 1) || B24_DEFAULT_AUDITORS=""
+    if [ -n "$B24_DEFAULT_AUDITORS" ]; then
+      AUDITORS_SOURCE="$f"
+    elif [ "$f" = "$LOCAL_DEFAULTS" ]; then
+      AUDITORS_BADFILE="$f"
+    fi
+  done
 fi
-B24_DEFAULT_AUDITORS="${B24_DEFAULT_AUDITORS:-}"
+# Одна форма записи для всех источников: только цифры через пробел. Строка из пробелов, запятых
+# или шаблонов («*») к этому моменту превращается в пустую — то есть в честное «список не задан».
+B24_DEFAULT_AUDITORS=$(printf '%s' "$B24_DEFAULT_AUDITORS" | tr '\t\n\r' '   ' | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
+case "$B24_DEFAULT_AUDITORS" in
+  ''|*[!0-9\ ]*) B24_DEFAULT_AUDITORS=""; AUDITORS_SOURCE="не заданы" ;;
+esac
+
+# Что сказать сотруднику, когда списка нет: «файл не заведён» и «файл есть, но строка кривая» —
+# это разные ситуации, и совет «создайте файл» во второй только запутывает.
+auditors_help() {
+  if [ -n "$AUDITORS_BADFILE" ]; then
+    printf 'файл %s найден, но строка B24_DEFAULT_AUDITORS в нём не распознана — нужна ровно строка B24_DEFAULT_AUDITORS="ID ID"' "$AUDITORS_BADFILE"
+  else
+    printf 'создайте файл %s с одной строкой B24_DEFAULT_AUDITORS="ID ID"' "${LOCAL_DEFAULTS:-~/.kamarooms/b24-defaults.env}"
+  fi
+}
 
 # PowerShell-фрагмент для Windows: расшифровать DPAPI-файл и вывести ключ в stdout (его читает только этот скрипт).
 PS_GET_KEY='$p = Join-Path $env:LOCALAPPDATA "KamaRooms\b24-webhook.dat"; if (-not (Test-Path $p)) { exit 3 }; $s = (Get-Content $p | Select-Object -First 1) | ConvertTo-SecureString; $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b)) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }'
@@ -46,7 +92,9 @@ KEY=""; PORTAL=""; USER_ID=""
 die() { local code=$1; shift; printf 'b24: %s\n' "$*" >&2; exit "$code"; }
 
 usage() {
-  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+  # Шапка файла целиком: со второй строки до первой строки без «#» (её отбрасываем).
+  # Жёсткий диапазон строк здесь был бы миной: правка шапки молча обрезала бы справку.
+  sed -n '2,/^[^#]/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
 }
 
 storage_name() {
@@ -102,7 +150,7 @@ allowed_check() {
 # каждую задачу, поставленную через навык. Ответственный из списка наблюдателем не дублируется.
 check_default_auditors() {
   local file="$1" payload arr resp missing="" id
-  [ -n "$B24_DEFAULT_AUDITORS" ] || return 0
+  [ -n "$B24_DEFAULT_AUDITORS" ] || die 1 "не задан список обязательных наблюдателей, а без него правило отеля не выполняется: $(auditors_help). Состав выдаёт ИТ-отдел (it@kamarooms.org)"
   payload=$(tr -d '\n\r' < "$file")
   arr=$(printf '%s' "$payload" | grep -Eo '"AUDITORS"[[:space:]]*:[[:space:]]*\[[^]]*\]' || true)
   resp=$(printf '%s' "$payload" | grep -Eo '"RESPONSIBLE_ID"[[:space:]]*:[[:space:]]*"?[0-9]+' | grep -Eo '[0-9]+$' || true)
@@ -149,6 +197,8 @@ case "$cmd" in
     read_key
     echo "ключ найден; портал: $PORTAL; пользователь ID: $USER_ID"
     echo "наблюдатели по умолчанию (AUDITORS): ${B24_DEFAULT_AUDITORS:-не заданы}"
+    echo "источник списка наблюдателей: $AUDITORS_SOURCE"
+    [ -z "$AUDITORS_BADFILE" ] || echo "внимание: $(auditors_help)"
     ;;
   whoami)
     read_key

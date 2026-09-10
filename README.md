@@ -20,7 +20,9 @@
   `task` и `user_brief`, сохранённый по памятке ИТ — в Связке ключей на Mac (запись
   `kama-b24-webhook`) или в DPAPI-файле `%LOCALAPPDATA%\KamaRooms\b24-webhook.dat` на Windows.
   На Windows без Git for Windows навык работает через PowerShell (нужен `curl.exe`, он есть
-  в Windows 10 1803 и новее).
+  в Windows 10 1803 и новее). Плюс список обязательных наблюдателей задач: ИТ кладёт его
+  на машину в файл `~/.kamarooms/b24-defaults.env` (Windows:
+  `%LOCALAPPDATA%\KamaRooms\b24-defaults.env`) — в пакете этих идентификаторов нет.
 
 ## Установка (2 команды)
 
@@ -92,22 +94,6 @@ Claude Code умеет обновлять маркетплейсы и устан
 
 Навык `bitrix24-tasks` предлагает включить автообновление сам при первой настройке.
 Команды из раздела «Обновление» остаются на случай, если нужно обновиться немедленно.
-
-## Для Алексея: как выпускать обновления
-
-1. Внести правки в навыки/манифесты.
-2. Поднять `version` **синхронно**: в `plugins/kamarooms-pack/.claude-plugin/plugin.json`
-   (и в записи плагина в `.claude-plugin/marketplace.json`, если поле там появится).
-3. `claude plugin validate .` — обе проверки зелёные.
-4. Прогнать скан на конфиденциальные данные: `sh scripts/scan-secrets.sh` — «OK», ноль совпадений.
-   Для `bitrix24-tasks` дополнительно: `bash -n plugins/kamarooms-pack/skills/bitrix24-tasks/scripts/b24.sh`
-   и прогон `b24.sh where`, `whoami`, `scope` со своим ключом; при неверном ключе
-   (`B24_WEBHOOK=https://<портал>/rest/1/FAKE/ … whoami`) секрет не должен появиться в выводе.
-5. Commit → push. Изменения в репозиторий попадают **только через ревью Алексея**;
-   право push — только у Алексея; на GitHub-аккаунте/org включена 2FA.
-
-Сотрудники получают обновление командами из раздела «Обновление»:
-`/plugin marketplace update kamarooms`, затем `/plugin update kamarooms-pack@kamarooms`.
 
 ## Вопросы
 
