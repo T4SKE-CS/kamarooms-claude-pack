@@ -16,6 +16,8 @@
 #   b24.sh scope                 — права (scope) ключа
 #   b24.sh call <метод> [файл]   — вызвать метод REST; тело запроса — JSON из файла ("-" = stdin); без файла — GET
 #   b24.sh link <ID задачи>      — ссылка на задачу в портале
+#   b24.sh set-defaults "ID ID"  — записать список обязательных наблюдателей в локальный файл машины;
+#                                  строку B24_DEFAULT_AUDITORS="ID ID" из письма ИТ можно вставить целиком
 #
 # Разрешены только методы из списка ALLOWED: создание задач и чтение. Остальное — отказ.
 # Снять ограничение может ИТ переменной B24_ALLOW_ANY=1 (в навыке не используется).
@@ -23,7 +25,8 @@
 # Наблюдатели по умолчанию (B24_DEFAULT_AUDITORS, ID через пробел) берутся из первого источника,
 # где список непуст: переменная окружения → локальный файл машины (~/.kamarooms/b24-defaults.env,
 # на Windows %LOCALAPPDATA%\KamaRooms\b24-defaults.env) → defaults.env рядом со скриптом.
-# В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный — файл заводит ИТ.
+# В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный. Файл на машине
+# пишет команда set-defaults из строки, которую ИТ присылает вместе с именем ключа.
 # Запрос tasks.task.add без них в AUDITORS отклоняется — правило отеля; исключение: ответственный из списка.
 #
 # Коды возврата: 0 — успех; 1 — ошибка использования или окружения; 2 — Битрикс вернул {"error":...};
@@ -78,9 +81,9 @@ esac
 # это разные ситуации, и совет «создайте файл» во второй только запутывает.
 auditors_help() {
   if [ -n "$AUDITORS_BADFILE" ]; then
-    printf 'файл %s найден, но строка B24_DEFAULT_AUDITORS в нём не распознана — нужна ровно строка B24_DEFAULT_AUDITORS="ID ID"' "$AUDITORS_BADFILE"
+    printf 'файл %s найден, но строка B24_DEFAULT_AUDITORS в нём не распознана — перезапишите его командой b24 set-defaults "ID ID" со строкой из письма ИТ' "$AUDITORS_BADFILE"
   else
-    printf 'создайте файл %s с одной строкой B24_DEFAULT_AUDITORS="ID ID"' "${LOCAL_DEFAULTS:-~/.kamarooms/b24-defaults.env}"
+    printf 'выполните b24 set-defaults "ID ID" со строкой из письма ИТ — она запишет файл %s' "${LOCAL_DEFAULTS:-~/.kamarooms/b24-defaults.env}"
   fi
 }
 
@@ -221,10 +224,31 @@ case "$cmd" in
     read_key
     printf '%s/company/personal/user/%s/tasks/task/view/%s/\n' "$PORTAL" "$USER_ID" "$2"
     ;;
+  set-defaults)
+    # Строка из письма ИТ: B24_DEFAULT_AUDITORS="ID ID" целиком или просто ID через пробел, одним
+    # аргументом или несколькими. Кавычки, запятые, export в начале и комментарий в конце допускаются.
+    shift
+    [ $# -gt 0 ] || die 1 'укажите список наблюдателей из письма ИТ: set-defaults "ID ID" (строку B24_DEFAULT_AUDITORS="ID ID" можно вставить целиком)'
+    ids=$(printf '%s ' "$@" \
+      | sed -E -e 's/^[[:space:]]*(export[[:space:]]+)?B24_DEFAULT_AUDITORS[[:space:]]*=//' -e 's/#.*$//' \
+      | tr '",\t\n\r' '     ' | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
+    case "$ids" in
+      ''|*[!0-9\ ]*) die 1 "список наблюдателей — это ID через пробел, например \"1001 1002\"; получено: «$ids»" ;;
+    esac
+    [ -n "$LOCAL_DEFAULTS" ] || die 1 "не могу определить путь к файлу наблюдателей: не заданы ни HOME, ни LOCALAPPDATA"
+    if [ -f "$LOCAL_DEFAULTS" ]; then verb="перезаписан"; else verb="создан"; fi
+    # Каталог 700 и файл 600 с первого байта: umask в подоболочке, чтобы не трогать окружение вызывающего.
+    ( umask 077; mkdir -p "$(dirname "$LOCAL_DEFAULTS")" && printf 'B24_DEFAULT_AUDITORS="%s"\n' "$ids" > "$LOCAL_DEFAULTS" ) \
+      || die 1 "не удалось записать файл $LOCAL_DEFAULTS"
+    chmod 600 "$LOCAL_DEFAULTS" 2>/dev/null || true
+    echo "файл $LOCAL_DEFAULTS $verb; наблюдатели по умолчанию (AUDITORS): $ids"
+    [ "$AUDITORS_SOURCE" != "переменная окружения B24_DEFAULT_AUDITORS" ] \
+      || echo "внимание: переменная окружения B24_DEFAULT_AUDITORS задана и имеет приоритет над файлом"
+    ;;
   help|-h|--help)
     usage
     ;;
   *)
-    die 1 "неизвестная команда: $cmd (where | whoami | scope | call <метод> [файл] | link <ID>)"
+    die 1 "неизвестная команда: $cmd (where | whoami | scope | call <метод> [файл] | link <ID> | set-defaults \"ID ID\")"
     ;;
 esac

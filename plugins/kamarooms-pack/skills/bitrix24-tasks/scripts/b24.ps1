@@ -11,6 +11,8 @@ b24.ps1 — обёртка над REST API Битрикс24 для навыка 
   scope                 — права (scope) ключа
   call <метод> [файл]   — вызвать метод REST; тело запроса — JSON из файла (UTF-8); без файла — GET
   link <ID задачи>      — ссылка на задачу в портале
+  set-defaults "ID ID"  — записать список обязательных наблюдателей в локальный файл машины;
+                          строку B24_DEFAULT_AUDITORS="ID ID" из письма ИТ можно вставить целиком
 
 Ключ (адрес входящего вебхука) берётся из защищённого хранилища и НИКОГДА не печатается:
   1. переменная окружения B24_WEBHOOK — только для тестов ИТ;
@@ -25,7 +27,8 @@ b24.ps1 — обёртка над REST API Битрикс24 для навыка 
 Наблюдатели по умолчанию (B24_DEFAULT_AUDITORS, ID через пробел) берутся из первого источника,
 где список непуст: переменная окружения -> локальный файл машины
 %LOCALAPPDATA%\KamaRooms\b24-defaults.env -> defaults.env рядом со скриптом.
-В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный — файл заводит ИТ.
+В самом пакете список пуст: это внутренние ID отеля, а репозиторий публичный. Файл на машине
+пишет команда set-defaults из строки, которую ИТ присылает вместе с именем ключа.
 Запрос tasks.task.add без них в AUDITORS отклоняется — правило отеля; исключение: ответственный из списка.
 
 Коды возврата: 0 — успех; 1 — ошибка использования или окружения; 2 — Битрикс вернул {"error":...};
@@ -34,7 +37,9 @@ b24.ps1 — обёртка над REST API Битрикс24 для навыка 
 param(
   [Parameter(Position = 0)][string]$Command = 'help',
   [Parameter(Position = 1)][string]$Arg1,
-  [Parameter(Position = 2)][string]$Arg2
+  [Parameter(Position = 2)][string]$Arg2,
+  # Хвост аргументов: set-defaults принимает ID и без кавычек, по одному на аргумент.
+  [Parameter(Position = 3, ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,10 +129,9 @@ function Redact([string]$s) {
 # каждую задачу, поставленную через навык. Ответственный из списка наблюдателем не дублируется.
 function Test-DefaultAuditors([string]$file) {
   if ($DefaultAuditors.Count -eq 0) {
-    Fail 1 ("не задан список обязательных наблюдателей, а без него правило отеля не выполняется. " +
-            "Создайте файл $LocalDefaultsPath с одной строкой " +
-            'B24_DEFAULT_AUDITORS="ID ID"' +
-            " — состав выдаёт ИТ-отдел (it@kamarooms.org)")
+    Fail 1 ("не задан список обязательных наблюдателей, а без него правило отеля не выполняется. Выполните " +
+            'b24 set-defaults "ID ID"' +
+            " со строкой из письма ИТ — она запишет файл $LocalDefaultsPath. Состав выдаёт ИТ-отдел (it@kamarooms.org)")
   }
   $payload = (Get-Content $file -Raw -Encoding UTF8) -replace '[\r\n]', ''
   $arr = [regex]::Match($payload, '"AUDITORS"\s*:\s*\[[^\]]*\]').Value
@@ -218,9 +222,27 @@ switch ($Command) {
     Read-Key
     Write-Output "$($script:Portal)/company/personal/user/$($script:UserId)/tasks/task/view/$Arg1/"
   }
+  'set-defaults' {
+    # Строка из письма ИТ: B24_DEFAULT_AUDITORS="ID ID" целиком или просто ID через пробел, одним
+    # аргументом или несколькими. Кавычки, запятые, export в начале и комментарий в конце допускаются.
+    $raw = ((@($Arg1, $Arg2) + @($Rest)) | Where-Object { $_ }) -join ' '
+    if (-not $raw.Trim()) { Fail 1 'укажите список наблюдателей из письма ИТ: set-defaults "ID ID" (строку B24_DEFAULT_AUDITORS="ID ID" можно вставить целиком)' }
+    $clean = $raw -replace '^\s*(export\s+)?B24_DEFAULT_AUDITORS\s*=', '' -replace '#.*$', '' -replace '[",]', ' '
+    $tokens = @($clean -split '\s+' | Where-Object { $_ })
+    $bad = @($tokens | Where-Object { $_ -notmatch '^[0-9]+$' })
+    if ($tokens.Count -eq 0 -or $bad.Count -gt 0) { Fail 1 ('список наблюдателей — это ID через пробел, например "1001 1002"; получено: ' + $raw.Trim()) }
+    if (-not $LocalDefaultsPath) { Fail 1 'не могу определить путь к файлу наблюдателей: переменная LOCALAPPDATA не задана' }
+    $existed = Test-Path $LocalDefaultsPath
+    New-Item -ItemType Directory -Force (Split-Path $LocalDefaultsPath) | Out-Null
+    # ASCII без BOM: содержимое только латиница и цифры, а BOM в начале строки ломал бы разбор регулярным выражением.
+    [IO.File]::WriteAllText($LocalDefaultsPath, ('B24_DEFAULT_AUDITORS="' + ($tokens -join ' ') + '"' + "`r`n"), [Text.Encoding]::ASCII)
+    $verb = if ($existed) { 'перезаписан' } else { 'создан' }
+    Write-Output "файл $LocalDefaultsPath ${verb}; наблюдатели по умолчанию (AUDITORS): $($tokens -join ' ')"
+    if ($env:B24_DEFAULT_AUDITORS) { Write-Output 'внимание: переменная окружения B24_DEFAULT_AUDITORS задана и имеет приоритет над файлом' }
+  }
   default {
     Write-Output 'b24.ps1 — обёртка над REST API Битрикс24 для навыка bitrix24-tasks.'
-    Write-Output 'Команды: where | whoami | scope | call <метод> [файл.json] | link <ID задачи>'
+    Write-Output 'Команды: where | whoami | scope | call <метод> [файл.json] | link <ID задачи> | set-defaults "ID ID"'
     Write-Output 'Запуск: powershell -NoProfile -ExecutionPolicy Bypass -File b24.ps1 <команда> [аргументы]'
     Write-Output 'Ключ читается из %LOCALAPPDATA%\KamaRooms\b24-webhook.dat (DPAPI) и никогда не печатается.'
   }

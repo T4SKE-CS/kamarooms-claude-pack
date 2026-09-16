@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Задачи Битрикс24 · {{USER}}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; margin: 28px 36px; color: #1f1f1f; background: #fbf8f2; }
+  h1 { font: 600 22px Georgia, serif; color: #6d2e46; margin: 0 0 4px; }
+  .meta { color: #6e6e6e; font-size: 13px; margin-bottom: 22px; }
+  h2 { font: 600 17px Georgia, serif; color: #6d2e46; margin: 26px 0 8px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 14px; }
+  th, td { border-bottom: 1px solid #e6dfd2; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #ece2d0; color: #4a1e30; font-weight: 600; }
+  tr.g td { background: #f4efe6; color: #6d2e46; font-weight: 600; }
+  tr.late td { background: #fff3f1; }
+  tr.late td.days { color: #b0413e; font-weight: 600; }
+  td.days, th.days { text-align: right; white-space: nowrap; }
+  a { color: #6d2e46; }
+  .total { color: #6e6e6e; font-size: 13px; margin: 6px 0 0; }
+  .empty { color: #6e6e6e; padding: 8px 0; }
+</style>
+</head>
+<body>
+<h1>Задачи Битрикс24 · {{USER}}</h1>
+<div class="meta">Сводка на {{DATE}}. Только чтение: изменения делаются в Битриксе. Файл обновляется командой /zadachi.</div>
+
+<h2>Мои задачи</h2>
+<table>
+<thead><tr><th>№</th><th>Задача</th><th>Срок</th><th>Статус</th><th>Поставил</th><th class="days">Просрочка, дн.</th></tr></thead>
+<tbody>
+{{MINE_ROWS}}
+</tbody>
+</table>
+<p class="total">Всего {{MINE_TOTAL}}, просрочено {{MINE_OVERDUE}}.</p>
+
+<h2>Я поставил другим</h2>
+<table>
+<thead><tr><th>№</th><th>Задача</th><th>Ответственный</th><th>Срок</th><th>Статус</th><th class="days">Просрочка, дн.</th></tr></thead>
+<tbody>
+{{SETBY_ROWS}}
+</tbody>
+</table>
+<p class="total">Всего {{SETBY_TOTAL}}, просрочено {{SETBY_OVERDUE}}.</p>
+</body>
+</html>
